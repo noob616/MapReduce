@@ -13,118 +13,112 @@ import (
 	"time"
 )
 
-// 通讯类
+// Communication class
 type Connection struct {
 }
 
-// 任务接收类
+// Task reception class
 type ReceiveResult struct {
-	Order     int    //工人编号
-	ResultMap string //接受的map
+	Order     int    // Worker ID
+	ResultMap string // Received map
 }
 
-// 工作移交类
+// Work handover class
 type ReturnRestMaster struct {
-	Order     int    //工人编号
-	ResultMap string //接受的map
-	Stemp     string //未统计的片段
-	Wordtemp  string //当前正在拼接的单词
+	Order     int    // Worker ID
+	ResultMap string // Received map
+	Stemp     string // Uncounted segments
+	Wordtemp  string // Currently concatenating word
 }
 
-// 对已有切片按worker序号进行进行分配方法
+// Method to distribute tasks based on worker ID
 func (con *Connection) Distribute(req int, resp *string) error {
 	tcurrent := time.Now().UnixMicro()
-	//设置开始时间
+	// Set start time
 	StartTime[req] = tcurrent
-	//按序号分配
+	// Distribute based on ID
 	*resp = sgroup[req]
-	fmt.Println(req, "已领取")
+	fmt.Println(req, "has received")
 	return nil
 }
 
-// 收集返回结果
+// Collect returned results
 func (con *Connection) GetResult(rr *ReceiveResult, resp *string) error {
 
-	//类型转换
+	// Type conversion
 	results[rr.Order] = JsonToMap(rr.ResultMap)
 	*resp = "yes"
 	numberofresults++
-	fmt.Println("接收到：", rr.Order, "的反馈")
-	Finish[rr.Order] = true //确认接受
+	fmt.Println("Received feedback from:", rr.Order)
+	Finish[rr.Order] = true // Confirm receipt
 	return nil
 }
 
-// 收集剩余任务
+// Collect remaining tasks
 func (con *Connection) GetRest(rr *ReturnRestMaster, resp *string) error {
 	waitingqueue = append(waitingqueue, *rr)
-	*resp = "已经接收到" + strconv.Itoa(rr.Order) + "的剩余任务"
-	fmt.Println("收集到了", rr.Order, "的剩余任务,长度为： ", len(waitingqueue))
+	*resp = "Received remaining tasks from " + strconv.Itoa(rr.Order)
+	fmt.Println("Collected remaining tasks from", rr.Order, ", length: ", len(waitingqueue))
 	return nil
 }
 
-// 与工人通讯
+// Communicate with workers
 func connectionWithWorker() {
-	// 功能对象注册
+	// Register functionality object
 	con := new(Connection)
-	err := rpc.Register(con) //自定义服务名rpc
+	err := rpc.Register(con) // Custom service name rpc
 	if err != nil {
 		panic(err.Error())
 	}
-	// HTTP注册
+	// HTTP registration
 	rpc.HandleHTTP()
 
-	// 端口监听
+	// Port listening
 	listen, err := net.Listen("tcp", ":9090")
 	if err != nil {
 		panic(err.Error())
 	}
-	// 启动服务
+	// Start service
 	_ = http.Serve(listen, nil)
 }
 
-// 按行读取文件并存储到s切片中
+// Read the file line by line and store it in slice s
 func GetLine(arraytemp *[]string) {
 
-	// 打开文件
+	// Open file
 	file, err := os.Open("sample/sample3.txt")
 	if err != nil {
-		fmt.Println("打开文件失败：", err)
+		fmt.Println("Failed to open file:", err)
 		return
 	}
 	defer file.Close()
 
-	// 创建 scanner 对象，用于逐行扫描文件
+	// Create scanner object for line-by-line scanning of file
 	scanner := bufio.NewScanner(file)
 
-	// 逐行读取文件并存储
+	// Read file line by line and store
 	for scanner.Scan() {
-		//fmt.Println(scanner.Text())
-
 		*arraytemp = append(*arraytemp, scanner.Text())
 		*arraytemp = append(*arraytemp, "\n ")
-
 	}
 
-	// 检查是否有错误发生
+	// Check for any errors
 	if err = scanner.Err(); err != nil {
-		fmt.Println("扫描文件出错：", err)
+		fmt.Println("Error scanning file:", err)
 	}
 }
 
-// 将s根据worker数量进行合并分组，设定10个
+// Merge slice s into groups based on worker count, set to 10
 func Grouping(s []string) {
 
-	common := len(s) / 9 //每组行数,10号补漏
-	//分组，存储到sgroup
+	common := len(s) / 9 // Number of lines per group, 10 for overflow
+	// Grouping, storing in sgroup
 	for i := 0; i < len(s); i++ {
-
-		//fmt.Println("组号： ", i/common)
 		sgroup[i/common] += s[i]
 	}
-
 }
 
-// 对从worker收集到的结果进行汇总
+// Summarize results collected from workers
 func ShuffleAndReduce() {
 
 	for {
@@ -134,78 +128,69 @@ func ShuffleAndReduce() {
 				for key, value := range results[i] {
 					finalresult[key] += value
 				}
-
 			}
-			fmt.Println("汇总成功")
+			fmt.Println("Summary successful")
 			SaveFinalResult()
 			break
-
 		}
-		//当前线程休眠一秒
+		// Current thread sleeps for one second
 		time.Sleep(time.Second)
 	}
-
 }
 
-// 存储中间结果
+// Save intermediate results
 func SaveIntermediateResult() {
-	fmt.Println("全部结果收集完成")
-	fmt.Println("写入中间结果文件")
+	fmt.Println("All results collected")
+	fmt.Println("Writing intermediate result file")
 	for i := 0; i < 10; i++ {
-
 		temp := "intermediateresult/worker"
 		temp += strconv.Itoa(i)
 		temp += ".txt"
 		filePath := temp
 		file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE, 0666)
 		if err != nil {
-			fmt.Println("文件打开失败", err)
+			fmt.Println("Failed to open file", err)
 		}
-		//及时关闭file句柄
+		// Close file handle in time
 		defer file.Close()
-		//写入文件时，使用带缓存的 *Writer
+		// Write to file using buffered *Writer
 		write := bufio.NewWriter(file)
 		for key, value := range results[i] {
-
 			write.WriteString(key + ":" + strconv.Itoa(value) + "\n")
-
 		}
-		//Flush将缓存的文件真正写入到文件中
+		// Flush to truly write the buffered data to file
 		write.Flush()
 	}
 }
 
-// 储存最终结果
+// Save final results
 func SaveFinalResult() {
-	//写入文件
+	// Write to file
 	temp := "finalresult/finalresult.txt"
 	filePath := temp
 	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
-		fmt.Println("文件打开失败", err)
+		fmt.Println("Failed to open file", err)
 	}
-	//及时关闭file句柄
+	// Close file handle in time
 	defer file.Close()
-	//写入文件时，使用带缓存的 *Writer
+	// Write to file using buffered *Writer
 	write := bufio.NewWriter(file)
 	for key, value := range finalresult {
-
 		write.WriteString(key + ":" + strconv.Itoa(value) + "\n")
-
 	}
-	//Flush将缓存的文件真正写入到文件中
+	// Flush to truly write the buffered data to file
 	write.Flush()
-
 }
 
-// 监听第i号worker工作时间
+// Monitor worker i's working time
 func TimeLisener(order int) {
 	for {
-		if (StartTime[order] != 0) && (!Finish[order]) { //任务已经开始且结果未提交，要求工作时间不超过10秒
-			tcurrent := time.Now().UnixMicro() //获取当前时间
+		if (StartTime[order] != 0) && (!Finish[order]) { // Task has started and result not submitted, work time should not exceed 10 seconds
+			tcurrent := time.Now().UnixMicro() // Get current time
 
 			if tcurrent-StartTime[order] > TIMELIMIT {
-				fmt.Println(order, " 超时了")
+				fmt.Println(order, " has timed out")
 				SetOverTime(order)
 				break
 			}
@@ -214,54 +199,54 @@ func TimeLisener(order int) {
 	}
 }
 
-// 设置第i号工人是否超时
+// Set whether worker i has timed out
 func SetOverTime(order int) {
 	for {
-		// 建立连接
+		// Establish connection
 		client, err := rpc.DialHTTP("tcp", "127.0.0.1:8081")
 		if err != nil {
 			panic(err.Error())
-			//fmt.Println("与", order, "连接失败")
+			// fmt.Println("Failed to connect to", order)
 			time.Sleep(time.Microsecond)
 			continue
 		}
 
 		var temp string
-		// 同步调用
+		// Synchronous call
 		err = client.Call("Monitor.ConWithMaster", order, &temp)
 		if err != nil {
 			panic(err.Error())
 		}
-		fmt.Println(order, "工作结果", temp)
+		fmt.Println(order, "work result:", temp)
 		client.Close()
 		break
 	}
 }
 
-// 移交剩余任务
+// Handover remaining tasks
 func AssignRest() {
 	for {
-		if len(waitingqueue) > 0 { //等待重新分配任务队列不为空
-			//分配任务
+		if len(waitingqueue) > 0 { // Waiting queue for redistributing tasks is not empty
+			// Distribute tasks
 			for {
-				// 建立连接
+				// Establish connection
 				client, err := rpc.DialHTTP("tcp", "127.0.0.1:8081")
 				if err != nil {
 					panic(err.Error())
-					//fmt.Println("与", order, "连接失败")
+					// fmt.Println("Failed to connect to", order)
 					time.Sleep(time.Microsecond)
 					continue
 				}
 
 				var temp string
-				// 同步调用
+				// Synchronous call
 				err = client.Call("Monitor.ReceiveRest", waitingqueue[0], &temp)
 				if err != nil {
 					panic(err.Error())
 				}
 				fmt.Println(temp)
-				fmt.Println("已经分配", waitingqueue[0].Order, "的剩余任务")
-				//踢出队列
+				fmt.Println("Assigned remaining tasks from", waitingqueue[0].Order)
+				// Remove from queue
 				waitingqueue = waitingqueue[1:]
 				client.Close()
 				break
@@ -271,7 +256,7 @@ func AssignRest() {
 	}
 }
 
-// string转Map
+// Convert string to map
 func JsonToMap(str string) map[string]int {
 
 	var tempMap map[string]int
@@ -285,55 +270,54 @@ func JsonToMap(str string) map[string]int {
 	return tempMap
 }
 
-// 分组后切片
+// Slice for grouped data
 var sgroup []string
 
-// 从worker们收到的结果份数
+// Number of results received from workers
 var numberofresults int
 
-// 各个工人统计结果切片
+// Slice for results from each worker
 var results []map[string]int
 
-// 最终结果集
+// Final result set
 var finalresult map[string]int
 
-// worker开始工作时间集合
+// Start time collection for workers
 var StartTime []int64
 
-// 工人是否完成队列
+// Completion status queue for workers
 var Finish []bool
 
-// 等待队列，储存待办任务
+// Waiting queue to store pending tasks
 var waitingqueue []ReturnRestMaster
 
-// 规定每个工人工作时间限制
+// Time limit for each worker's work
 const TIMELIMIT int64 = 10000
 
 func main() {
 
-	//初设工人完成队列
+	// Initialize completion queue for workers
 	Finish = []bool{false, false, false, false, false, false, false, false, false, false}
-	//初设开始时间队列
+	// Initialize start time queue
 	StartTime = make([]int64, 10)
 	for i := 0; i < 10; i++ {
 		StartTime[i] = 0
 	}
 	results = make([]map[string]int, 10)
-	//监听剩余任务队列
+	// Listen for remaining task queue
 	go AssignRest()
-	//开始监听每个worker工作时间
+	// Start monitoring each worker's working time
 	for i := 0; i < 10; i++ {
 		go TimeLisener(i)
 	}
-	//初始化结果份数
+	// Initialize number of results
 	numberofresults = 0
-	//逐行读取的切片
+	// Slice for line-by-line reading
 	var sline []string
-	sgroup = make([]string, 10)        //初始化切片,10组
-	finalresult = make(map[string]int) //初始化最终结果集
-	GetLine(&sline)                    //按行读取文件
-	Grouping(sline)                    //分组
-	go ShuffleAndReduce()              //开启线程监听，在全部工人提交结果后汇总结果
-	connectionWithWorker()             //与worker展开通讯
-
+	sgroup = make([]string, 10)        // Initialize slice for 10 groups
+	finalresult = make(map[string]int) // Initialize final result set
+	GetLine(&sline)                    // Read file line by line
+	Grouping(sline)                    // Grouping
+	go ShuffleAndReduce()              // Start thread to listen for all workers' results and summarize
+	connectionWithWorker()             // Communicate with workers
 }
